@@ -1,0 +1,9 @@
+# Godot's own scratch files - not part of the game
+.godot/
+android/
+
+# Mac clutter
+.DS_Store
+
+# Big raw files we don't need on GitHub
+*.blend1
