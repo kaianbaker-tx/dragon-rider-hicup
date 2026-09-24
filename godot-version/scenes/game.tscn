@@ -1,0 +1,21 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Texture2D" uid="uid://brjw6q5hrhry2" path="res://sprites/sky.png" id="1_sky"]
+[ext_resource type="PackedScene" path="res://objects/dragon.tscn" id="2_drg"]
+[ext_resource type="Script" path="res://scenes/game.gd" id="3_gme"]
+
+[node name="Game" type="Node2D"]
+script = ExtResource("3_gme")
+
+[node name="Sky" type="ParallaxBackground" parent="."]
+
+[node name="Far" type="ParallaxLayer" parent="Sky"]
+motion_scale = Vector2(0.5, 0.2)
+motion_mirroring = Vector2(2560, 0)
+
+[node name="Image" type="Sprite2D" parent="Sky/Far"]
+texture = ExtResource("1_sky")
+centered = false
+
+[node name="Dragon" parent="." instance=ExtResource("2_drg")]
+position = Vector2(360, 360)

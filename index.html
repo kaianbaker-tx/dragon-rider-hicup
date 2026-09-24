@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Dragon Rider Hicup</title>
+<style>
+  :root{
+    --ink:#141a30;
+    --gold:#ffcf6b;
+    --cream:#f6efe2;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{
+    margin:0;padding:0;height:100%;overflow:hidden;
+    background:#0a0d1a;
+    font-family:"Trebuchet MS",Verdana,sans-serif;
+    color:var(--cream);
+    touch-action:none;user-select:none;
+  }
+  #wrap{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 30%, #2a2145, #080b15 75%);
+  }
+  canvas{
+    display:block;
+    border:6px solid #2a2450;
+    border-radius:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,.7), 0 0 0 3px #ffcf6b33;
+    background:#141a30;
+    max-width:100%;max-height:100%;
+  }
+  #hint{
+    position:fixed;left:0;right:0;bottom:6px;text-align:center;
+    font-size:12px;letter-spacing:.06em;color:#f6efe288;z-index:4;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="1280" height="720"></canvas></div>
+<div id="hint">arrow keys or WASD = fly &nbsp;·&nbsp; space = fire</div>
+
+<script>
+const W = 1280, H = 720;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// ---------------------------------------------------------------- pictures
+const art = {};
+let loaded = 0, wanted = 0;
+function pic(name, file){
+  wanted++;
+  const i = new Image();
+  i.onload = () => loaded++;
+  i.src = file;
+  art[name] = i;
+}
+pic('sky',  'art/sky.png');
+pic('drg1', 'art/dragon_1.png');
+pic('drg2', 'art/dragon_2.png');
+pic('drg3', 'art/dragon_3.png');
+pic('evl1', 'art/evil_1.png');
+pic('evl2', 'art/evil_2.png');
+pic('evl3', 'art/evil_3.png');
+
+// ---------------------------------------------------------------- controls
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+function held(...codes){ return codes.some(c => keys[c]); }
+
+// ---------------------------------------------------------------- the dragon
+const dragon = {
+  x: 340, y: 360,
+  vx: 0, vy: 0,
+  speed: 520,      // how fast he flies
+  grip: 9,         // how quickly he gets up to speed - smaller = floatier
+  tilt: 0,
+  flap: 0
+};
+
+// ---------------------------------------------------------------- fire
+const fire = [];          // fireballs you have breathed
+let fireCool = 0;         // stops you firing every single frame
+const FIRE_GAP = 0.18;    // seconds between fireballs - smaller = faster
+const FIRE_SPEED = 900;   // how fast a fireball flies
+
+function breatheFire(){
+  fire.push({
+    x: dragon.x + 118, y: dragon.y - 34,
+    vx: FIRE_SPEED, vy: dragon.vy * 0.25,
+    life: 1.6, r: 15
+  });
+}
+
+// ---------------------------------------------------------------- evil dragons
+const evils = [];
+let evilTimer = 1.0;      // seconds until the next one turns up
+const EVIL_GAP = 1.6;
+
+function spawnEvil(){
+  evils.push({
+    x: W + 160,
+    y: 110 + Math.random() * (H - 240),
+    speed: 130 + Math.random() * 90,
+    bobPhase: Math.random() * 6.28,
+    bobSize: 20 + Math.random() * 30,
+    flap: Math.random() * 4,
+    dead: false
+  });
+}
+
+// ---------------------------------------------------------------- sparks
+const sparks = [];
+function burst(x, y, n, colour){
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * 6.28, sp = 90 + Math.random() * 320;
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                  life: 0.3 + Math.random() * 0.45, r: 3 + Math.random() * 5, colour });
+  }
+}
+
+let skyScroll = 0;
+const WORLD_SPEED = 120;   // how fast the world slides past
+
+function update(dt){
+  let wx = 0, wy = 0;
+  if (held('ArrowLeft','KeyA'))  wx -= 1;
+  if (held('ArrowRight','KeyD')) wx += 1;
+  if (held('ArrowUp','KeyW'))    wy -= 1;
+  if (held('ArrowDown','KeyS'))  wy += 1;
+
+  const len = Math.hypot(wx, wy);
+  if (len > 1){ wx /= len; wy /= len; }
+
+  const k = 1 - Math.exp(-dragon.grip * dt);
+  dragon.vx += (wx * dragon.speed - dragon.vx) * k;
+  dragon.vy += (wy * dragon.speed - dragon.vy) * k;
+
+  dragon.x += dragon.vx * dt;
+  dragon.y += dragon.vy * dt;
+
+  // stay on screen
+  dragon.x = Math.max(90, Math.min(W - 130, dragon.x));
+  dragon.y = Math.max(80, Math.min(H - 90,  dragon.y));
+
+  // nose tips up when climbing, down when diving
+  const want = (dragon.vy / dragon.speed) * 0.34;
+  dragon.tilt += (want - dragon.tilt) * (1 - Math.exp(-8 * dt));
+
+  // flaps harder when pulling up
+  const effort = 1 + Math.max(0, -dragon.vy / dragon.speed) * 1.3;
+  dragon.flap += dt * 9 * effort;
+
+  skyScroll = (skyScroll + WORLD_SPEED * dt) % 2560;
+
+  // ---- breathe fire
+  fireCool -= dt;
+  if (held('Space') && fireCool <= 0){
+    breatheFire();
+    fireCool = FIRE_GAP;
+  }
+  for (let i = fire.length - 1; i >= 0; i--){
+    const f = fire[i];
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    f.life -= dt;
+    if (f.life <= 0 || f.x > W + 60) fire.splice(i, 1);
+  }
+
+  // ---- evil dragons turn up and fly at you
+  evilTimer -= dt;
+  if (evilTimer <= 0){
+    spawnEvil();
+    evilTimer = EVIL_GAP;
+  }
+  for (let i = evils.length - 1; i >= 0; i--){
+    const e = evils[i];
+    e.x -= e.speed * dt;
+    e.bobPhase += dt * 2.2;
+    e.flap += dt * 8;
+    if (e.x < -220) evils.splice(i, 1);
+  }
+
+  // ---- fire hits them
+  for (let i = evils.length - 1; i >= 0; i--){
+    const e = evils[i];
+    const ey = e.y + Math.sin(e.bobPhase) * e.bobSize;
+    for (let j = fire.length - 1; j >= 0; j--){
+      const f = fire[j];
+      if (Math.hypot(f.x - e.x, f.y - ey) < 78){
+        burst(e.x, ey, 22, '#ff9a3c');
+        evils.splice(i, 1);
+        fire.splice(j, 1);
+        break;
+      }
+    }
+  }
+
+  // ---- sparks fade out
+  for (let i = sparks.length - 1; i >= 0; i--){
+    const s = sparks[i];
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    s.vy += 420 * dt;
+    s.life -= dt;
+    if (s.life <= 0) sparks.splice(i, 1);
+  }
+}
+
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+
+  // sky, tiled so it never runs out
+  const sky = art.sky;
+  if (sky.complete){
+    const x = -skyScroll;
+    ctx.drawImage(sky, x, 0);
+    ctx.drawImage(sky, x + 2560, 0);
+  }
+
+  // evil dragons - drawn facing left
+  const eframes = [art.evl1, art.evl2, art.evl3, art.evl2];
+  for (const e of evils){
+    const g = eframes[Math.floor(e.flap) % 4];
+    if (!g || !g.complete) continue;
+    const ey = e.y + Math.sin(e.bobPhase) * e.bobSize;
+    ctx.save();
+    ctx.translate(e.x, ey);
+    ctx.scale(-1, 1);
+    ctx.drawImage(g, -g.width / 2, -g.height / 2);
+    ctx.restore();
+  }
+
+  // fireballs
+  for (const f of fire){
+    const g = ctx.createRadialGradient(f.x, f.y, 2, f.x, f.y, f.r * 2.4);
+    g.addColorStop(0,   '#fff6c8');
+    g.addColorStop(0.35,'#ffd24a');
+    g.addColorStop(0.7, '#ff7a1c');
+    g.addColorStop(1,   'rgba(255,90,20,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(f.x, f.y, f.r * 2.4, f.r * 1.7, 0, 0, 6.28);
+    ctx.fill();
+  }
+
+  // sparks
+  for (const s of sparks){
+    ctx.globalAlpha = Math.max(0, Math.min(1, s.life * 2));
+    ctx.fillStyle = s.colour;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, 6.28);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // dragon
+  const frames = [art.drg1, art.drg2, art.drg3, art.drg2];
+  const f = frames[Math.floor(dragon.flap) % 4];
+  if (f && f.complete){
+    ctx.save();
+    ctx.translate(dragon.x, dragon.y);
+    ctx.rotate(dragon.tilt);
+    ctx.drawImage(f, -f.width / 2, -f.height / 2);
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------- the loop
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  if (loaded < wanted){
+    ctx.fillStyle = '#141a30'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffcf6b'; ctx.font = '28px Trebuchet MS'; ctx.textAlign = 'center';
+    ctx.fillText('loading...', W / 2, H / 2);
+  } else {
+    update(dt);
+    draw();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
